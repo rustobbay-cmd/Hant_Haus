@@ -1,0 +1,60 @@
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
+
+class OrderState(StatesGroup):
+    browsing = State()
+    waiting_address = State()
+    waiting_phone = State()
+    waiting_comment = State() # Новое состояние
+    waiting_payment = State()
+
+# 1. После ввода телефона спрашиваем комментарий
+@router.message(OrderState.waiting_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    phone = message.contact.phone_number if message.contact else message.text
+    await state.update_data(phone=phone)
+    
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="Пропустить ➡️")
+    
+    await message.answer(
+        "Напишите комментарий к заказу (например: номер подъезда, код домофона или 'без лука'):",
+        reply_markup=builder.as_markup(resize_keyboard=True)
+    )
+    await state.set_state(OrderState.waiting_comment)
+
+# 2. Получаем комментарий и переходим к оплате
+@router.message(OrderState.waiting_comment)
+async def process_comment(message: types.Message, state: FSMContext):
+    comment = message.text if message.text != "Пропустить ➡️" else "Нет"
+    await state.update_data(comment=comment)
+    
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="💵 Наличными")
+    builder.button(text="💳 Картой")
+    
+    await message.answer("Выберите способ оплаты:", reply_markup=builder.as_markup(resize_keyboard=True))
+    await state.set_state(OrderState.waiting_payment)
+
+# 3. В финальной функции (где отправка админу) добавь это:
+@router.message(OrderState.waiting_payment)
+async def finalize_order(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    comment = data.get('comment', 'Нет')
+    
+    # Сохраняем в БД (вызываем обновленную функцию)
+    order_id = add_order_to_db(
+        message.from_user.id, str(data['cart']), message.text, 
+        data['address'], data['phone'], message.from_user.full_name, comment
+    )
+
+    # Текст для админа
+    admin_text = (
+        f"🆕 ЗАКАЗ №{order_id}\n"
+        f"--------------------\n"
+        f"🏠 Адрес: {data['address']}\n"
+        f"📞 Тел: {data['phone']}\n"
+        f"💬 Коммент: {comment}\n" # Теперь админ видит комментарий
+        f"💰 Оплата: {message.text}"
+    )
+    # ... тут код отправки админу ...
