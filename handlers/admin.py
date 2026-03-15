@@ -2,7 +2,7 @@ from aiogram import Router, F, types
 from aiogram.filters.callback_data import CallbackData
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import ADMIN_ID, COURIER_ID
-from utils.database import get_orders_by_status, update_order_status, get_order_user_id
+from utils.database import get_orders_by_status, update_order_status, get_order_user_id, get_order_method
 
 router = Router()
 
@@ -24,6 +24,7 @@ async def admin_orders(message: types.Message):
 
     for row in orders:
         oid, details, status = row["id"], row["details"], row["status"]
+        method = row["method"]
         kb = InlineKeyboardBuilder()
 
         if status == "В обработке":
@@ -32,8 +33,12 @@ async def admin_orders(message: types.Message):
             kb.button(text="❌ Отменить",
                       callback_data=AdminAction(action="cancel", order_id=oid).pack())
         elif status == "Подтвержден":
-            kb.button(text="🛵 Передать курьеру",
-                      callback_data=AdminAction(action="tocur", order_id=oid).pack())
+            if "Самовывоз" in method:
+                kb.button(text="✅ Готов к выдаче",
+                          callback_data=AdminAction(action="ready", order_id=oid).pack())
+            else:
+                kb.button(text="🛵 Передать курьеру",
+                          callback_data=AdminAction(action="tocur", order_id=oid).pack())
 
         kb.adjust(1)
         await message.answer(
@@ -52,14 +57,19 @@ async def handle_decisions(callback: types.CallbackQuery, callback_data: AdminAc
     action = callback_data.action
     order_id = callback_data.order_id
     user_id = get_order_user_id(order_id)
+    method = get_order_method(order_id)
     text = callback.message.text or ""
 
     if action == "confirm":
         update_order_status(order_id, "Подтвержден")
         await bot.send_message(user_id, f"🥳 Заказ №{order_id} подтвержден! Начинаем готовить.")
         kb = InlineKeyboardBuilder()
-        kb.button(text="🛵 Передать курьеру",
-                  callback_data=AdminAction(action="tocur", order_id=order_id).pack())
+        if "Самовывоз" in method:
+            kb.button(text="✅ Готов к выдаче",
+                      callback_data=AdminAction(action="ready", order_id=order_id).pack())
+        else:
+            kb.button(text="🛵 Передать курьеру",
+                      callback_data=AdminAction(action="tocur", order_id=order_id).pack())
         await callback.message.edit_text(
             f"{text}\n\n✅ Статус: Подтвержден",
             reply_markup=kb.as_markup()
@@ -69,6 +79,11 @@ async def handle_decisions(callback: types.CallbackQuery, callback_data: AdminAc
         update_order_status(order_id, "Отменен")
         await bot.send_message(user_id, f"😔 Заказ №{order_id} отменен администратором.")
         await callback.message.edit_text(f"{text}\n\n❌ Статус: Отменен")
+
+    elif action == "ready":
+        update_order_status(order_id, "Готов к выдаче")
+        await bot.send_message(user_id, f"✅ Ваш заказ №{order_id} готов! Ждём вас. 🙌")
+        await callback.message.edit_text(f"{text}\n\n✅ Статус: Готов к выдаче")
 
     elif action == "tocur":
         update_order_status(order_id, "В пути")

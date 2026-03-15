@@ -97,13 +97,13 @@ def get_orders_by_status(user_id: int = None) -> list:
     with get_conn() as conn:
         if user_id:
             return conn.execute(
-                "SELECT id, details, status FROM orders "
+                "SELECT id, details, status, method FROM orders "
                 "WHERE user_id = ? ORDER BY id DESC",
                 (user_id,)
             ).fetchall()
         return conn.execute(
-            "SELECT id, details, status FROM orders "
-            "WHERE status NOT IN ('Доставлен', 'Отменен') ORDER BY id DESC"
+            "SELECT id, details, status, method FROM orders "
+            "WHERE status NOT IN ('Доставлен', 'Отменен', 'Готов к выдаче') ORDER BY id DESC"
         ).fetchall()
 
 
@@ -120,3 +120,11 @@ def get_order_user_id(order_id: int) -> int | None:
             "SELECT user_id FROM orders WHERE id = ?", (order_id,)
         ).fetchone()
         return row["user_id"] if row else None
+
+
+def get_order_method(order_id: int) -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT method FROM orders WHERE id = ?", (order_id,)
+        ).fetchone()
+        return row["method"] if row else ""
